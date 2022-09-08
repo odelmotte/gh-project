@@ -6,7 +6,6 @@ shift
 
 list_projects() {
   local org=$1
-  echo "${org}"
   TEMPLATE='{{tablerow "ID" "Name" "URL"}}{{range .data.organization.projectsV2.nodes}}{{tablerow .id .title .url}}{{end}}'
 
   exec gh api graphql -f query='
@@ -50,8 +49,43 @@ list_projects_help() {
 
 list_columns() {
   local project_id="$1"
-  TEMPLATE='{{tablerow "ID" "Name" }}{{range .}}{{tablerow .id .name }}{{end}}'
-  exec gh api "projects/${project_id}/columns" --template="$TEMPLATE"
+  TEMPLATE='{{tablerow "Name" "ID"}}{{range .data.node.fields.nodes}}{{tablerow .name .id}}{{end}}'
+
+  # exec gh api "projects/${project_id}/columns" --template="$TEMPLATE"
+  exec gh api graphql -f query='
+  query($projectId: ID!){
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      fields(first: 20) {
+        nodes {
+          ... on ProjectV2Field {
+            id
+            name
+          }
+          ... on ProjectV2IterationField {
+            id
+            name
+            configuration {
+              iterations {
+                id
+                startDate
+              }
+            }
+          }
+          ... on ProjectV2SingleSelectField {
+            id
+            name
+            options {
+              id
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}' -f projectId="${project_id}" #--template="$TEMPLATE"
+
 }
 
 list_columns_help() {
@@ -109,12 +143,18 @@ create_card() {
     label="\"${label//,/\",\"}\""
   fi
 
-  issue_payload="{\"title\": \"$title\", \"labels\": [$label]}"
-  issue_id=$(echo "$issue_payload" | gh api "/repos/${owner}/${issue_repo}/issues" --input - --jq '.id')
+  TEMPLATE='{{.data.addProjectV2DraftIssue.projectItem.id}}'
 
-  content_url=$(gh api "/projects/columns/${column_id}/cards" -F content_id="$issue_id" -f content_type=Issue --jq '.content_url')
+  itemId=exec gh api graphql -f query='
+  mutation ($projectId: ID!, $title: String!, $body: String!){
+    addProjectV2DraftIssue(input: {projectId: $projectId title: $title body: $body}) {
+      projectItem {
+        id
+      }
+    }
+  }' -f projectId="${owner}" -f title="${title}" -f body="${label}" --template="$TEMPLATE"
 
-  echo "$content_url" | sed s/api.// | sed s-repos/--
+  echo $itemId
 }
 
 create_card_help() {
