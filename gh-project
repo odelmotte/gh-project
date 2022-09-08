@@ -5,9 +5,24 @@ cmd=$1
 shift
 
 list_projects() {
-  local path=$1
-  TEMPLATE='{{tablerow "ID" "Name" "URL"}}{{range .}}{{tablerow .id .name .html_url}}{{end}}'
-  exec gh api --preview inertia "${path}/projects" --template="$TEMPLATE"
+  local org=$1
+  echo "${org}"
+  TEMPLATE='{{tablerow "ID" "Name" "URL"}}{{range .data.organization.projectsV2.nodes}}{{tablerow .id .title .url}}{{end}}'
+
+  exec gh api graphql -f query='
+  query($organization: String!){
+    organization(login: $organization){
+      projectsV2(first: 100) {
+        nodes{
+          id,
+          title,
+          url
+        }
+      }
+    }
+  }' -f organization="${org}" --template="$TEMPLATE"
+
+
 }
 
 list_projects_help() {
@@ -36,7 +51,7 @@ list_projects_help() {
 list_columns() {
   local project_id="$1"
   TEMPLATE='{{tablerow "ID" "Name" }}{{range .}}{{tablerow .id .name }}{{end}}'
-  exec gh api --preview inertia "projects/${project_id}/columns" --template="$TEMPLATE"
+  exec gh api "projects/${project_id}/columns" --template="$TEMPLATE"
 }
 
 list_columns_help() {
@@ -97,7 +112,7 @@ create_card() {
   issue_payload="{\"title\": \"$title\", \"labels\": [$label]}"
   issue_id=$(echo "$issue_payload" | gh api "/repos/${owner}/${issue_repo}/issues" --input - --jq '.id')
 
-  content_url=$(gh api --preview inertia "/projects/columns/${column_id}/cards" -F content_id="$issue_id" -f content_type=Issue --jq '.content_url')
+  content_url=$(gh api "/projects/columns/${column_id}/cards" -F content_id="$issue_id" -f content_type=Issue --jq '.content_url')
 
   echo "$content_url" | sed s/api.// | sed s-repos/--
 }
@@ -221,7 +236,7 @@ case "$cmd" in
       path="/users/$user"
       [[ -n "$org$owner$repository" ]] && { echo "invalid flags in combination with user"; exit 1; }
     elif [[ -n "$org" ]]; then
-      path="/orgs/$org"
+      path="$org"
       [[ -n "$owner$repository" ]] && { echo "invalid flags in combination with org"; exit 1; }
     elif [[ -n "$owner" && -n "$repository" ]]; then
       path="/repos/$owner/$repository"
