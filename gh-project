@@ -137,24 +137,76 @@ create_card() {
   shift
   local label="$1"
   shift
-  local title=$*
+  local title="$1"
+  shift
+  local iterationid="$1"
+  shift
+  local iterationfieldid="$1"
+  shift
+  local itemtype="$1"
+  shift
+  local itemtypeid=$*
 
   if [[ -n $label ]]; then
-    label="\"${label//,/\",\"}\""
+    label="${label//,/\",\"}"
   fi
 
   TEMPLATE='{{.data.addProjectV2DraftIssue.projectItem.id}}'
 
-  itemId=exec gh api graphql -f query='
+  itemId=$(exec gh api graphql -f query='
   mutation ($projectId: ID!, $title: String!, $body: String!){
     addProjectV2DraftIssue(input: {projectId: $projectId title: $title body: $body}) {
       projectItem {
         id
       }
     }
-  }' -f projectId="${owner}" -f title="${title}" -f body="${label}" --template="$TEMPLATE"
+  }' -f projectId="${owner}" -f title="${title}" -f body="${label}" --template="$TEMPLATE")
 
-  echo $itemId
+  # echo $itemId
+
+  echo "iteration $iterationid  / $iterationfieldid"
+  echo "item $owner  / $itemId"
+
+  iteration=$(exec gh api graphql -f query='
+    mutation ($projectId: ID!, $itemId: ID!, $fieldId: ID!, $iterationId: String!){
+      updateProjectV2ItemFieldValue(
+        input: {
+          projectId: $projectId
+          itemId: $itemId
+          fieldId: $fieldId
+          value: {
+            iterationId: $iterationId
+          }
+        }
+      ) {
+        projectV2Item {
+          id
+        }
+      }
+    }' -f iterationId="${iterationid}" -f projectId="${owner}" -f fieldId="${iterationfieldid}" -f itemId="${itemId}")
+
+  echo "type $itemtype  / $itemtypeid"
+  echo "item $owner  / $itemId"
+
+  echo "Set type"
+  exec gh api graphql -f query='
+    mutation ($projectId: ID!, $itemId: ID!, $fieldId: ID!, $itemtype: String!){
+      updateProjectV2ItemFieldValue(
+        input: {
+          projectId: $projectId
+          itemId: $itemId
+          fieldId: $fieldId
+          value: {
+            singleSelectOptionId: $itemtype
+          }
+        }
+      ) {
+        projectV2Item {
+          id
+        }
+      }
+    }' -f itemtype="${itemtype}" -f projectId="${owner}" -f fieldId="${itemtypeid}" -f itemId="${itemId}"
+
 }
 
 create_card_help() {
@@ -355,6 +407,22 @@ case "$cmd" in
                 title="$2"
                 shift 2 || require_arg "title"
                 ;;
+            -i|--iteration)
+                iteration="$2"
+                shift 2 || require_arg "iteration"
+                ;;
+            -ifd|--iterationFieldId)
+                iterationfieldid="$2"
+                shift 2 || require_arg "iterationfieldid"
+                ;;
+            -it|--itemtype)
+                itemtype="$2"
+                shift 2 || require_arg "itemtype"
+                ;;
+            -itd|--itemtypeid)
+                itemtypeid="$2"
+                shift 2 || require_arg "itemtypeid"
+                ;;
             -h|--help)
                 create_card_help
                 exit 0
@@ -370,7 +438,7 @@ case "$cmd" in
     [[ -z "$column_id" ]] && { echo "Missing column"; exit 1; }
     [[ -z "$issue_repository" ]] && { echo "Missing issue-repository"; exit 1; }
     [[ -z "$title" ]] && { echo "Missing title"; exit 1; }
-    create_card "$owner" "$column_id" "$issue_repository" "$labels" "$title"
+    create_card "$owner" "$column_id" "$issue_repository" "$labels" "$title" "$iteration" "$iterationfieldid" "$itemtype" "$itemtypeid"
     ;;
   move-card)
     while [ "${1:-}" != "" ]; do
